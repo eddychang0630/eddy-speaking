@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eddy-speaking-v2';
+const CACHE_NAME = 'eddy-speaking-v3';
 const urlsToCache = ['./', './index.html', './lessons/index.js', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', event => {
@@ -12,6 +12,8 @@ self.addEventListener('fetch', event => {
   const url = new URL(request.url);
   // 只快取本 App 註冊範圍內的資源。
   if (url.origin !== self.location.origin || !url.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
+  // MP3 交給瀏覽器自己處理：Safari 播音檔會發 Range 請求，從 Service Worker 快取回應會讓 iOS 播不出來
+  if (url.pathname.endsWith('.mp3')) return;
   event.respondWith(
     fetch(request, { cache: 'no-store' }) // 跳過瀏覽器 HTTP 快取，部署新版立即生效
       .then(response => {

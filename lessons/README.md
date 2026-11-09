@@ -1,5 +1,8 @@
 # 課程資料格式
 
+> ⚠️ `registerLesson(...)` 括號裡必須是**標準 JSON**（雙引號、沒有註解、沒有結尾逗號），`tools/build_audio.py` 才讀得懂。
+> 新增或修改課程後，要重新產生自然語音：見最下面「產生 Kokoro 音檔」。
+
 每一課是一個 `.js` 檔，內容是一次 `registerLesson({...})`。
 新增一課：放進這個資料夾，再把檔名加到 `index.js` 的 `LESSON_FILES`。
 檔名用「日期-主題」，例如 `2026-11-12-cafe-ordering.js`。`id` 和檔名相同（不含 .js），之後不要改，進度靠它對應。
@@ -19,6 +22,7 @@
 口語問句 + 自然回答，按「情境」分組。對話、跟讀、聽力題沒寫的話，App 會自動從卡片產生。
 
 ```js
+// 下面是說明用的寫法；實際檔案請寫成標準 JSON
 registerLesson({
   id: '2026-11-12-cafe-ordering', type: 'qa', date: '2026-11-12',
   title: '咖啡店點餐與閒聊', short: '11/12 咖啡店',
@@ -41,3 +45,14 @@ registerLesson({
   ]
 });
 ```
+
+## 產生 Kokoro 音檔
+
+App 會優先播放 `audio/` 裡預先產生的 MP3（主聲音 `am_puck`，對話 B 角色 `af_heart`），找不到才用系統語音。
+新增課程後，在 Windows 的 eddy-speaking 資料夾執行：
+
+```powershell
+& "$env:USERPROFILE\Desktop\English class 整理重點\.models\kokoro\venv\Scripts\python.exe" tools\build_audio.py --push
+```
+
+已經有的音檔會跳過，只產生新句子；不再用到的舊音檔會刪掉。

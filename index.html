@@ -432,6 +432,8 @@
   <div class="dlg-body">
     <div>
       <h3>🔊 朗讀語音</h3>
+      <div class="seg" id="seg-engine" style="margin-bottom:8px"><button data-engine="kokoro">🎙 自然語音（推薦）</button><button data-engine="system">📱 系統語音</button></div>
+      <p id="engine-note" style="margin-bottom:8px"></p>
       <select id="sel-voice"></select>
       <p style="margin-top:8px">⭐ 是高品質的神經語音。朗讀用的是裝置內建的系統語音，聲音好不好聽取決於裝置上裝了哪些語音。</p>
       <p id="voice-hint" style="margin-top:6px;color:#fcd34d">這台裝置還沒有高品質英文語音。iPhone / iPad：設定 → 輔助使用 → 朗讀內容 → 聲音 → 英文，下載標示「優質」或「增強」的聲音（例如 Ava、Zoe、Evan），回來在上面選它。</p>
@@ -460,6 +462,8 @@
 window.LESSONS = [];
 window.registerLesson = function (l) { window.LESSONS.push(l); };
 </script>
+<script>window.AUDIO_CLIPS = {};</script>
+<script src="audio/manifest.js" onerror="void 0"></script>
 <script src="lessons/index.js"></script>
 <script>
 'use strict';
@@ -554,7 +558,7 @@ function initLessons() {
 
 /* ════════════ 儲存（localStorage） ════════════ */
 const KEY = 'eddy-chunks-v1';
-const defaultState = () => ({ v: 2, progress: {}, stars: [], days: [], settings: { rate: 1, voice: '', gap: 'auto', repeat: 1, shRate: 1, view: 'notes', deck: 'due', fmode: 'zh', talkSub: 'dialog', lesson: REVIEW } });
+const defaultState = () => ({ v: 2, progress: {}, stars: [], days: [], settings: { rate: 1, voice: '', gap: 'auto', repeat: 1, shRate: 1, view: 'notes', deck: 'due', fmode: 'zh', talkSub: 'dialog', lesson: REVIEW, engine: 'kokoro' } });
 function normalizeState(j) {
   const base = defaultState();
   const st = { ...base, ...j, settings: { ...base.settings, ...((j && j.settings) || {}) } };
@@ -622,14 +626,47 @@ function pickVoice() {
   TTS.voiceB = vs.find(x => x !== TTS.voice && x.name.split(' ')[0] !== TTS.voice.name.split(' ')[0] && voiceScore(x) >= voiceScore(TTS.voice) - 25) || TTS.voice;
   fillVoiceSelect();
 }
-function stopSpeech() { TTS.run++; if ('speechSynthesis' in window) speechSynthesis.cancel(); $$('.playing').forEach(b => b.classList.remove('playing')); }
-function speak(text, { rate, pitch = 1, btn, role } = {}) {
+function stopSpeech() { TTS.run++; try { player.pause(); } catch (e) {} if (clipDone) clipDone(true); if ('speechSynthesis' in window) speechSynthesis.cancel(); $$('.playing').forEach(b => b.classList.remove('playing')); }
+/* ── Kokoro 自然語音：tools/build_audio.py 預先產生的 MP3，找不到才退回系統語音 ── */
+const KOKORO_A = 'am_puck', KOKORO_B = 'af_heart';
+const normText = t => String(t).replace(/\s*\/\s*/g, ', ').trim();  // 必須和 build_audio.py 的 norm_text 一致
+const player = new Audio(); player.preload = 'auto';
+function clipUrl(text, role) {
+  const clips = window.AUDIO_CLIPS || {}, key = normText(text);
+  const h = (role === 'B' && clips[KOKORO_B] && clips[KOKORO_B][key]) || (clips[KOKORO_A] && clips[KOKORO_A][key]);
+  return h ? 'audio/' + h + '.mp3' : null;
+}
+const useKokoro = () => S.settings.engine !== 'system';
+let clipDone = null;
+function playClip(url, rate, btn) {
+  if (clipDone) clipDone(true);
+  return new Promise(res => {
+    let done = false, tm;
+    const fin = ok => { if (done) return; done = true; clearTimeout(tm); if (clipDone === fin) clipDone = null; player.onended = player.onerror = null; btn && btn.classList.remove('playing'); res(ok); };
+    clipDone = fin;
+    player.pause();
+    player.src = url;
+    player.defaultPlaybackRate = player.playbackRate = rate;
+    player.preservesPitch = player.webkitPreservesPitch = true;
+    player.onended = () => fin(true); player.onerror = () => fin(false);
+    tm = setTimeout(() => fin(true), 30000);
+    btn && btn.classList.add('playing');
+    const pr = player.play(); if (pr && pr.catch) pr.catch(() => fin(false));
+  });
+}
+async function speak(text, { rate, btn, role } = {}) {
+  const r = rate || S.settings.rate || 1;
+  const url = useKokoro() && clipUrl(text, role);
+  if (url && await playClip(url, r, btn)) return;
+  return speakSystem(text, { rate: r, btn, role });
+}
+function speakSystem(text, { rate, btn, role } = {}) {
   return new Promise(res => {
     if (!('speechSynthesis' in window)) { toast('這個瀏覽器不支援語音朗讀'); return res(); }
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text).replace(/\s*\/\s*/g, ', '));
+    const u = new SpeechSynthesisUtterance(normText(text));
     const vv = role === 'B' ? TTS.voiceB : TTS.voice; if (vv) { u.voice = vv; u.lang = vv.lang; } else u.lang = 'en-US';
-    u.rate = rate || S.settings.rate || 1; u.pitch = 1;
+    u.rate = rate; u.pitch = 1;
     let done = false;
     const fin = () => { if (done) return; done = true; clearTimeout(tm); btn && btn.classList.remove('playing'); res(); };
     const tm = setTimeout(fin, 2000 + String(text).length * 110 / u.rate);
@@ -1264,9 +1301,19 @@ function fillVoiceSelect() {
   const hint = $('#voice-hint');
   if (hint) hint.style.display = vs.some(goodVoice) ? 'none' : 'block';
 }
+function renderEngine() {
+  const k = useKokoro(), n = Object.values(window.AUDIO_CLIPS || {}).reduce((a, m) => a + Object.keys(m).length, 0);
+  $$('#seg-engine button').forEach(b => b.classList.toggle('active', (b.dataset.engine === 'kokoro') === k));
+  $('#engine-note').textContent = k
+    ? (n ? `用 Kokoro 預先產生的 ${n} 段音檔，每台裝置聽起來都一樣。沒有音檔的句子會改用系統語音。` : '還沒有產生自然語音音檔，目前會用系統語音。')
+    : '用裝置內建的語音即時朗讀，可以在下面選聲音。';
+  $('#sel-voice').style.display = k ? 'none' : '';
+  if (k) $('#voice-hint').style.display = 'none'; else fillVoiceSelect();
+}
 function openSettings() {
   fillVoiceSelect();
   $$('#seg-rate button').forEach(b => b.classList.toggle('active', Number(b.dataset.rate) === Number(S.settings.rate)));
+  renderEngine();
   $('#dlg-settings').showModal();
 }
 function backupString() { return JSON.stringify({ app: 'eddy-chunks', version: 2, exportedAt: new Date().toISOString(), state: S }); }
@@ -1279,6 +1326,7 @@ function restore(text) {
 }
 function bindDialogs() {
   $$('dialog').forEach(dl => dl.addEventListener('click', e => { if (e.target.closest('[data-close]') || e.target === dl) dl.close(); }));
+  $('#seg-engine').addEventListener('click', e => { const b = e.target.closest('[data-engine]'); if (!b) return; e.stopPropagation(); S.settings.engine = b.dataset.engine; save(); renderEngine(); });
   $('#seg-rate').addEventListener('click', e => { const r = e.target.closest('[data-rate]'); if (!r) return; e.stopPropagation(); S.settings.rate = Number(r.dataset.rate); save(); $$('#seg-rate button').forEach(b => b.classList.toggle('active', b === r)); });
   $('#sel-voice').addEventListener('change', e => { S.settings.voice = e.target.value; save(); pickVoice(); });
   $('#btn-test-voice').addEventListener('click', e => { e.stopPropagation(); speak('Do you wanna grab coffee later?'); });

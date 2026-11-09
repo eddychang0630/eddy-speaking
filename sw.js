@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eddy-speaking-v3';
+const CACHE_NAME = 'eddy-speaking-v4';
 const urlsToCache = ['./', './index.html', './lessons/index.js', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', event => {

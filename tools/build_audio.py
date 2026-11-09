@@ -4,7 +4,9 @@
 用 Kokoro 產生成 audio/<hash>.mp3，並寫出 audio/manifest.js 給 App 查表。
 已經存在的音檔會跳過，所以新增一課只會產生新的句子。
 
-用法（Windows PowerShell，在 eddy-speaking 資料夾裡）：
+平常不用手動執行：推送 lessons/ 的變更後，GitHub Actions（.github/workflows/audio.yml）會自動產生並推回音檔。
+
+手動執行（Windows PowerShell，在 eddy-speaking 資料夾裡）：
     & "$env:USERPROFILE\\Desktop\\English class 整理重點\\.models\\kokoro\\venv\\Scripts\\python.exe" tools\\build_audio.py
     加上 --push 會在產生完後自動 git add / commit / pull --rebase / push。
 
@@ -103,20 +105,25 @@ def _short_path(path):
 
 
 def make_renderer(kokoro_home):
-    kokoro_home = Path(kokoro_home)
-    data_path = kokoro_home / "venv/Lib/site-packages/espeakng_loader/espeak-ng-data"
-    if not data_path.is_dir():
-        raise FileNotFoundError(f"找不到 eSpeak 資料：{data_path}（用 --kokoro-home 指定 Kokoro 資料夾）")
-    os.environ["HF_HOME"] = str(kokoro_home / "hf-cache")
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    os.environ["ESPEAK_DATA_PATH"] = _short_path(data_path)
+    if kokoro_home is None:
+        # GitHub Actions / 一般 pip 安裝：用 pip 裝好的 kokoro，模型從 Hugging Face 下載
+        pass
+    else:
+        kokoro_home = Path(kokoro_home)
+        data_path = kokoro_home / "venv/Lib/site-packages/espeakng_loader/espeak-ng-data"
+        if not data_path.is_dir():
+            raise FileNotFoundError(f"找不到 eSpeak 資料：{data_path}（用 --kokoro-home 指定 Kokoro 資料夾）")
+        os.environ["HF_HOME"] = str(kokoro_home / "hf-cache")
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["ESPEAK_DATA_PATH"] = _short_path(data_path)
 
-    import misaki.espeak  # noqa: F401
-    from phonemizer.backend.espeak.wrapper import EspeakWrapper
     import torch
     from kokoro import KPipeline
 
-    EspeakWrapper.set_data_path(None)
+    if kokoro_home is not None:
+        import misaki.espeak  # noqa: F401
+        from phonemizer.backend.espeak.wrapper import EspeakWrapper
+        EspeakWrapper.set_data_path(None)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Loading Kokoro on {device}", flush=True)
     pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M", device=device)
@@ -164,7 +171,8 @@ def git_push(count):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="產生口說 App 的 Kokoro MP3")
-    p.add_argument("--kokoro-home", type=Path, default=Path(os.environ.get("KOKORO_HOME", DEFAULT_KOKORO)))
+    p.add_argument("--kokoro-home", default=os.environ.get("KOKORO_HOME", str(DEFAULT_KOKORO)),
+                   help="本機 Kokoro 資料夾；GitHub Actions 用 none（直接用 pip 安裝的 kokoro）")
     p.add_argument("--push", action="store_true", help="產生完後 git commit + push")
     p.add_argument("--keep-orphans", action="store_true", help="保留已經沒有用到的舊音檔")
     args = p.parse_args(argv)
@@ -178,7 +186,7 @@ def main(argv=None):
     print(f"需要 {total} 段音檔，其中 {len(pending)} 段要產生", flush=True)
 
     if pending:
-        render = make_renderer(args.kokoro_home)
+        render = make_renderer(None if str(args.kokoro_home).lower() == "none" else Path(args.kokoro_home))
         for i, (voice, text, h) in enumerate(pending, 1):
             render(text, voice, AUDIO_DIR / f"{h}.mp3")
             if i % 20 == 0 or i == len(pending):

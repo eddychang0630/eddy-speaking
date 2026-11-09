@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eddy-speaking-v1';
+const CACHE_NAME = 'eddy-speaking-v2';
 const urlsToCache = ['./', './index.html', './lessons/index.js', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', event => {
@@ -22,8 +22,9 @@ self.addEventListener('fetch', event => {
   );
 });
 
+// 啟用時清掉本 App 的舊版快取，以及搬家前舊版口說 App（/eddy-flashcards/speaking/）留下的 eddy-chunks-* 快取
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(names => Promise.all(names.filter(n => n.startsWith('eddy-speaking-') && n !== CACHE_NAME).map(n => caches.delete(n)))).then(() => self.clients.claim())
+    caches.keys().then(names => Promise.all(names.filter(n => (n.startsWith('eddy-speaking-') && n !== CACHE_NAME) || n.startsWith('eddy-chunks-')).map(n => caches.delete(n)))).then(() => self.clients.claim())
   );
 });

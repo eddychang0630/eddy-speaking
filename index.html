@@ -433,6 +433,8 @@
     <div>
       <h3>🔊 朗讀語音</h3>
       <select id="sel-voice"></select>
+      <p style="margin-top:8px">⭐ 是高品質的神經語音。朗讀用的是裝置內建的系統語音，聲音好不好聽取決於裝置上裝了哪些語音。</p>
+      <p id="voice-hint" style="margin-top:6px;color:#fcd34d">這台裝置還沒有高品質英文語音。iPhone / iPad：設定 → 輔助使用 → 朗讀內容 → 聲音 → 英文，下載標示「優質」或「增強」的聲音（例如 Ava、Zoe、Evan），回來在上面選它。</p>
       <div class="row" style="margin-top:8px">
         <span class="lbl">預設語速</span>
         <div class="seg" id="seg-rate"><button data-rate="0.8">0.8x</button><button data-rate="0.9">0.9x</button><button data-rate="1">1.0x</button></div>
@@ -599,25 +601,35 @@ function scopeCards(withGroup = true) {
 function groupLabel(c) { const g = c.lesson.groupsById[c.groupId]; return g ? `${c.lesson.type === 'video' ? 'Family' : '情境'} ${g.number} · ${g.titleZh}` : ''; }
 
 /* ════════════ 語音朗讀（Web Speech API） ════════════ */
-const TTS = { voice: null, run: 0 };
+const TTS = { voice: null, voiceB: null, run: 0 };
 function enVoices() { return ('speechSynthesis' in window) ? speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)) : []; }
+// 系統語音品質不一：優先選「優質 / Premium」「增強 / Enhanced」「Natural」等神經語音，排除 macOS / iOS 的搞笑音效語音
+const NOVELTY = /Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Junior|Ralph|Fred|Kathy|Grandma|Grandpa|Eddy|Flo|Reed|Rocko|Sandy|Shelley/i;
+function voiceScore(v) {
+  let s = 0;
+  if (/en[-_]US/i.test(v.lang)) s += 20; else if (/en[-_](GB|AU|CA|IE|NZ)/i.test(v.lang)) s += 10;
+  if (/premium|優質/i.test(v.name)) s += 50; else if (/enhanced|增強|neural|natural/i.test(v.name)) s += 35;
+  if (/Google US English|Microsoft (Aria|Jenny|Guy|Ava|Andrew|Emma|Brian)/i.test(v.name)) s += 30;
+  if (/Samantha|Ava|Zoe|Allison|Evan|Nathan|Tom|Susan|Noelle|Joelle/i.test(v.name)) s += 8;
+  if (NOVELTY.test(v.name)) s -= 100;
+  return s;
+}
+const goodVoice = v => voiceScore(v) >= 50;
 function pickVoice() {
-  const vs = enVoices(); if (!vs.length) return;
-  let v = S && S.settings.voice && vs.find(x => x.voiceURI === S.settings.voice);
-  if (!v) {
-    const pref = ['Samantha', 'Ava', 'Google US English', 'Microsoft Aria', 'Microsoft Jenny', 'Allison', 'Alex'];
-    v = pref.map(n => vs.find(x => x.name.includes(n) && /en[-_]US/i.test(x.lang))).find(Boolean) || vs.find(x => /en[-_]US/i.test(x.lang)) || vs[0];
-  }
-  TTS.voice = v || null; fillVoiceSelect();
+  const vs = enVoices().sort((a, b) => voiceScore(b) - voiceScore(a)); if (!vs.length) return;
+  TTS.voice = (S && S.settings.voice && vs.find(x => x.voiceURI === S.settings.voice)) || vs[0];
+  // 對話的 B 角色換另一個好聲音；找不到就用同一個，不再用變調（變調會讓聲音很假）
+  TTS.voiceB = vs.find(x => x !== TTS.voice && x.name.split(' ')[0] !== TTS.voice.name.split(' ')[0] && voiceScore(x) >= voiceScore(TTS.voice) - 25) || TTS.voice;
+  fillVoiceSelect();
 }
 function stopSpeech() { TTS.run++; if ('speechSynthesis' in window) speechSynthesis.cancel(); $$('.playing').forEach(b => b.classList.remove('playing')); }
-function speak(text, { rate, pitch = 1, btn } = {}) {
+function speak(text, { rate, pitch = 1, btn, role } = {}) {
   return new Promise(res => {
     if (!('speechSynthesis' in window)) { toast('這個瀏覽器不支援語音朗讀'); return res(); }
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(String(text).replace(/\s*\/\s*/g, ', '));
-    u.lang = 'en-US'; if (TTS.voice) u.voice = TTS.voice;
-    u.rate = rate || S.settings.rate || 1; u.pitch = pitch;
+    const vv = role === 'B' ? TTS.voiceB : TTS.voice; if (vv) { u.voice = vv; u.lang = vv.lang; } else u.lang = 'en-US';
+    u.rate = rate || S.settings.rate || 1; u.pitch = 1;
     let done = false;
     const fin = () => { if (done) return; done = true; clearTimeout(tm); btn && btn.classList.remove('playing'); res(); };
     const tm = setTimeout(fin, 2000 + String(text).length * 110 / u.rate);
@@ -1007,7 +1019,7 @@ function renderTalk() {
       <p class="muted" style="font-size:.76rem;margin-bottom:12px;line-height:1.6">${esc(dp.title || '')}。隱藏英文時，先看中文自己說出英文，再點模糊處對答案。</p>
       <div class="chat ${hideEn ? 'hide-en' : ''}" id="chat">
         ${dp.lines.map((l, i) => `<div class="bubble ${l.speaker === 'B' ? 'B' : 'A'}" id="line-${i}">
-          <div class="b-head"><span class="spk">${esc(l.speaker || 'A')}</span><button class="mini" data-say="${esc(l.en)}" data-pitch="${l.speaker === 'B' ? 1.15 : 0.95}">🔊</button>${tsBtn(l.time)}</div>
+          <div class="b-head"><span class="spk">${esc(l.speaker || 'A')}</span><button class="mini" data-say="${esc(l.en)}" data-role="${esc(l.speaker || 'A')}">🔊</button>${tsBtn(l.time)}</div>
           <div class="b-en">${hl(l.en, [...(l.chunksUsed || []), ...(L.type === 'video' ? [] : ALL_PATTERNS)])}</div>
           <div class="b-zh">${esc(l.zh)}</div>
           ${(l.chunksUsed || []).length ? `<div class="chips">${l.chunksUsed.map(c => `<span class="chip">${esc(c)}</span>`).join('')}</div>` : ''}
@@ -1044,7 +1056,7 @@ async function playDialogue() {
     if (run !== TTS.run) return;
     $$('.bubble.now').forEach(b => b.classList.remove('now'));
     const el = $('#line-' + i); el && el.classList.add('now'); el && el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    await speak(lines[i].en, { pitch: lines[i].speaker === 'B' ? 1.15 : 0.95 });
+    await speak(lines[i].en, { role: lines[i].speaker });
     if (run !== TTS.run) return;
     await sleep(hideEn ? estMs(lines[i].en, 1) : 500);
   }
@@ -1188,7 +1200,7 @@ document.addEventListener('click', e => {
   if (d.lesson) return openLesson(d.lesson, d.lview || (d.lesson === REVIEW ? 'notes' : 'notes'));
   if (d.view) return setView(d.view);
   if (d.seek != null) return seek(Number(d.seek), d.lid ? LBY[d.lid] : null);
-  if (d.say != null) { e.stopPropagation(); stopSpeech(); return speak(d.say, { rate: d.rate ? Number(d.rate) : undefined, pitch: d.pitch ? Number(d.pitch) : 1, btn: t }); }
+  if (d.say != null) { e.stopPropagation(); stopSpeech(); return speak(d.say, { rate: d.rate ? Number(d.rate) : undefined, role: d.role, btn: t }); }
   if (d.star) return toggleStar(d.star);
   if (d.goto) return gotoCard(d.goto);
   if (d.gotoFam) { curGroup = d.gotoFam; renderFamBar(); buildDeck(); setView('notes'); renderNotesList(); $('#main').scrollTop = 0; return; }
@@ -1247,8 +1259,10 @@ document.addEventListener('keydown', e => {
 /* ════════════ 設定與備份 ════════════ */
 function fillVoiceSelect() {
   const sel = $('#sel-voice'); if (!sel) return;
-  const vs = enVoices();
-  sel.innerHTML = vs.length ? vs.map(v => `<option value="${esc(v.voiceURI)}" ${TTS.voice && v.voiceURI === TTS.voice.voiceURI ? 'selected' : ''}>${esc(v.name)} (${v.lang})</option>`).join('') : '<option>（找不到英文語音）</option>';
+  const vs = enVoices().sort((a, b) => voiceScore(b) - voiceScore(a));
+  sel.innerHTML = vs.length ? vs.map(v => `<option value="${esc(v.voiceURI)}" ${TTS.voice && v.voiceURI === TTS.voice.voiceURI ? 'selected' : ''}>${goodVoice(v) ? '⭐ ' : ''}${esc(v.name)} (${v.lang})</option>`).join('') : '<option>（找不到英文語音）</option>';
+  const hint = $('#voice-hint');
+  if (hint) hint.style.display = vs.some(goodVoice) ? 'none' : 'block';
 }
 function openSettings() {
   fillVoiceSelect();

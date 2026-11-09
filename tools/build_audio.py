@@ -137,7 +137,7 @@ def make_renderer(kokoro_home):
                 raise RuntimeError(f"Kokoro 沒有產生聲音：{text}")
             samples = torch.cat(chunks).detach().cpu().numpy().astype("float32")
             subprocess.run(
-                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                [os.environ.get("FFMPEG_BIN", "ffmpeg"), "-hide_banner", "-loglevel", "error", "-y",
                  "-f", "f32le", "-ar", "24000", "-ac", "1", "-i", "pipe:0",
                  "-codec:a", "libmp3lame", "-q:a", "4", "-f", "mp3", str(temporary)],
                 input=samples.tobytes(), check=True,

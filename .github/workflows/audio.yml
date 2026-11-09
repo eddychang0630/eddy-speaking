@@ -18,16 +18,13 @@ concurrency:
 jobs:
   audio:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install ffmpeg and eSpeak
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg espeak-ng
 
       - name: Cache pip and Kokoro model
         uses: actions/cache@v4
@@ -40,7 +37,9 @@ jobs:
       - name: Install Kokoro (CPU)
         run: |
           pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
-          pip install --quiet kokoro soundfile
+          pip install --quiet kokoro soundfile imageio-ffmpeg
+          # 用 pip 套件內附的 ffmpeg，不靠 apt-get（apt 來源常常很慢）
+          echo "FFMPEG_BIN=$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" >> "$GITHUB_ENV"
 
       - name: Generate audio
         run: python tools/build_audio.py --kokoro-home none

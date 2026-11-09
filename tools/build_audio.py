@@ -4,9 +4,7 @@
 用 Kokoro 產生成 audio/<hash>.mp3，並寫出 audio/manifest.js 給 App 查表。
 已經存在的音檔會跳過，所以新增一課只會產生新的句子。
 
-平常不用手動執行：推送 lessons/ 的變更後，GitHub Actions（.github/workflows/audio.yml）會自動產生並推回音檔。
-
-手動執行（Windows PowerShell，在 eddy-speaking 資料夾裡）：
+用法（Windows PowerShell，在 eddy-speaking 資料夾裡）：
     & "$env:USERPROFILE\\Desktop\\English class 整理重點\\.models\\kokoro\\venv\\Scripts\\python.exe" tools\\build_audio.py
     加上 --push 會在產生完後自動 git add / commit / pull --rebase / push。
 
